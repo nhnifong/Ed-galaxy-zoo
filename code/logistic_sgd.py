@@ -119,8 +119,27 @@ class LogisticRegression(object):
         # LP[n-1,y[n-1]]] and T.mean(LP[T.arange(y.shape[0]),y]) is
         # the mean (across minibatch examples) of the elements in v,
         # i.e., the mean log-likelihood across the minibatch.
-        return -T.mean(T.log(self.p_y_given_x)[T.arange(y.shape[0]), y])
+        return -T.mean(
+            T.log(self.p_y_given_x)[T.arange(y.shape[0]), y]
+        )
 
+    def negative_log_likelihood(self, y):
+        """ same as above but where y is a matrix of probabilities
+        one row for each example in the minibatch
+        one column for each class
+        """
+        # the part in the [] is just a way of taking the relevant probability out of the predicted LP matrix.
+        # in english, the log probability of a given example is the predicted probability of it being in the class it is actually in.
+        # the other predicted probabilities are just thrown away.
+        # in the case of galaxy zoo classes, all the probabilities are relevant, so a different indexing method is needed.
+        # it is not known which class an example is actually in.
+        # for any example and class, we have a predicted probability and an actual probability.
+        # the case of exclusive class membership would be like having a [0,0,0,1,0,0,0] (in the galaxy zoo format)
+        # in the case of y being a matrix of the same form as self.p_y_given_x, it is just the pairwise product of the two matrices.
+        return -T.mean(
+            T.log(self.p_y_given_x * y)
+        )
+        
     def errors(self, y):
         """Return a float representing the number of errors in the minibatch
         over the total number of examples of the minibatch ; zero one

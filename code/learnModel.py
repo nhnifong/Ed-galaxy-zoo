@@ -45,7 +45,7 @@ class GalaxyModel(object):
         """ learn from a list of examples of the form
         (image, classes)
         """
-        pass
+        print repr(examples)
 
     def predict(self, image):
         self.a = self.b
