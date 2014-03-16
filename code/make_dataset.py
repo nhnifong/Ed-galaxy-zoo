@@ -23,8 +23,7 @@ class galaxy_zoo_dataset(DenseDesignMatrixPyTables):
         # this is the final desired shape
         # the original shape is 424, 424
         self.img_shape = (100,100,3)
-        
-        self.img_size = np.prod(self.img_shape)
+        self.target_shape = (37,)
 
         if path is None:
             path = '${PYLEARN2_DATA_PATH}/galaxy-data/'
@@ -33,37 +32,19 @@ class galaxy_zoo_dataset(DenseDesignMatrixPyTables):
         path = preprocess(path)
         file_n = "{}_arrays.h5".format(os.path.join(path, "h5", whichset))
         if os.path.isfile(file_n):
+            # just open file
             self.h5file = tables.openFile(file_n, mode='r')
-            root = self.h5file.root
         else:
-            print "Creating %s" % file_n
+            # create file and fill with data
             self.first_time(whichset, path, file_n)
 
-        # create ndim for preprocessor
-        root.images.ndim = len(root.images.shape)
-        if self.has_targets():
-            root.targets.ndim = len(root.targets.shape)
-        else:
-            root.targets = None
-
-        axes=('b', 0, 1, 'c') # not sure what this means
-        view_converter = DefaultViewConverter((100, 100, 3), axes)
+        #axes=('b', 0, 1, 'c') # not sure what this means
+        #view_converter = DefaultViewConverter((100, 100, 3), axes)
         super(galaxy_zoo_dataset, self).__init__(X=root.images, y=root.targets,
                                                  axes=axes)
-
-    def __repr__(self):
-        res = "h5file\n"
-        im = self.h5file.root.images
-        res+= "    images %r %r\n" % (im.dtype, im.shape)
-        try:
-            ta = self.h5file.root.targets
-            res+= "    targets %r %r\n" % (ta.dtype, ta.shape)
-        except AttributeError:
-            pass
-        return res
             
     def first_time(self, whichset, path, file_n, rng=None):
-        """ Responsible for creating the desired h5 file for the first time.
+        """ Responsible for creating and filling the desired h5 file for the first time.
         It should produce the same train/test/valid split each time given
         the same random seed"""
 
@@ -96,24 +77,26 @@ class galaxy_zoo_dataset(DenseDesignMatrixPyTables):
 
         for k,v in gal_ids.items():
             print k,len(v)
-            
+        
+    
         num_examples = len(gal_ids[whichset])
         print 'num_examples = %i' % num_examples
-        self.h5file = tables.openFile(file_n, mode='w')
-        root = self.h5file.root
-        images = self.h5file.createCArray(root,'images',tables.Float32Atom(),
-                                     shape=(num_examples,100,100,3))
+        xshape = (num_examples,) + self.img_shape
         if whichset is not 'final':
-            targets = self.h5file.createCArray(root,'targets',tables.Float32Atom(),
-                                          shape=(num_examples,37))
+            yshape = (num_examples,) + self.target_shape
+        else:
+            yshape = None 
+        shapes = (xshape,yshape)
+        self.h5file, gcolumns = self.init_hdf5(file_n, shapes)
+        node = file_handle.getNode('/', 'Data')
 
-        c = 0
-        n = 0
-        chunksize = 100
+        c = 0 # chunk counter
+        n = 0 # example counter
+        chunksize = 400
         while n < num_examples:
             l = min(chunksize,num_examples-n)
-            temp_images = np.zeros((l,100,100,3))
-            temp_targets = np.zeros((l,37))
+            temp_images = np.zeros((l,) + self.img_shape)
+            temp_targets = np.zeros((l,) + self.target_shape)
             for i in xrange(l):
                 galid = gal_ids[whichset][n]
                 fpath = os.path.join(image_dir,galid+'.jpg')
@@ -124,29 +107,17 @@ class galaxy_zoo_dataset(DenseDesignMatrixPyTables):
                 if whichset is not 'final':
                     temp_targets[i] = solutions[galid]
                 n += 1
-            images[n-len(temp_images):n] = temp_images
+            
+            self.set_topological_view(temp_images, start=n-len(temp_images))
+            #node.X[n-len(temp_images):n] = temp_images
             if whichset is not 'final':
-                targets[n-len(temp_targets):n] = temp_targets
+                # why can I use set topological view for X but not for Y?
+                node.Y[n-len(temp_targets):n] = temp_targets
+                
             c += 0
             print '%0.2f%%' % (float(n)/num_examples*100)
-                
         self.h5file.flush()
 
-    def iterator(self, mode=None, batch_size=None, num_batches=None,
-                 topo=None, targets=False, rng=None):
-        if self.has_targets():
-            return izip(self.h5file.root.images, self.h5file.root.targets)
-        else:
-            return self.h5file.root.images.__iter__
-
-    def has_targets(self):
-        return self.whichset != 'final'
-
-    def apply_preprocessor(self, preprocessor, can_fit=False):
-        preprocessor.apply(self, can_fit)
-
-    def get_design_matrix(self):
-        return self.h5file.root.images
 
 if __name__=='__main__':
     for ws in ['train','test','valid','final','bigtrain']:
